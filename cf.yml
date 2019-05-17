@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Demonstration of copying files from one bucket to another in S3
+Parameters:
+  Region:
+    Type: String
+    Default: us-east-1
+
+Resources:
+  Bucket1:
+    Type: 'AWS::S3::Bucket' 
+    Properties:
+      BucketName: 'lambdas3cp-abv-source'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event : 's3:ObjectCreated:*'
+            Function: !GetAtt CopyFilesToS3.Arn
+  PermissionForS3ToInvokeMyLambda:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt CopyFilesToS3.Arn
+      Principal: 's3.amazonaws.com'
+      SourceAccount: ''
+      SourceArn: arn:aws:s3:::lambdas3cp-abv-source
+  Bucket2:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: lambdas3cp-abv-target
+  
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: LambdaExecutionRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:*'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+      RoleName: lambda-cf
+
+  CopyFilesToS3:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: "index.lambda_handler"
+      Role: !GetAtt [ LambdaExecutionRole, Arn ]
+        
+      Code:
+        ZipFile: |
+            from __future__ import print_function
+            import urllib
+            import boto3
+            import ast
+            import json
+            s3 = boto3.client('s3')
+            def lambda_handler(event, context):
+                source_bucket = event['Records'][0]['s3']['bucket']['name']
+                source_data = event['Records'][0]['s3']['object']['key']
+                target_bucket = 'lambdas3cp-abv-target'
+                copy_source = {'Bucket': source_bucket, 'Key': source_data}
+                print("Copying %s from bucket %s to bucket %s ..." % (source_data, source_bucket, target_bucket))
+                s3.copy_object(Bucket=target_bucket, Key=source_data, CopySource=copy_source)
+            
+            
+      Runtime: python3.6
+
+
+
